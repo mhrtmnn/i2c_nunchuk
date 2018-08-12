@@ -4,12 +4,14 @@
 #include <linux/i2c.h>
 #include <linux/delay.h>
 
+#include "i2c_nunchuk.h"
+
 
 /*******************************************************************************
 * i2c DRIVER
 *******************************************************************************/
 
-static int get_status(struct i2c_client *cl)
+static int get_status(struct i2c_client *cl, nunchuk_status_t *status)
 {
 	int err, count;
 	char buf[6];
@@ -36,10 +38,49 @@ static int get_status(struct i2c_client *cl)
 	if (err != count)
 		goto read_err;
 
+	/**
+	 * Parse the Buffer
+	 *
+	 *
+	 * Joystick:
+	 * buf[0] = joy_x[7:0]
+	 * buf[1] = joy_y[7:0]
+	 *
+	 * Acceleration:
+	 * buf[2] = acc_x[9:2]
+	 * buf[3] = acc_y[9:2]
+	 * buf[4] = acc_z[9:2]
+	 *
+	 * buf[5][7:6] = acc_x[1:0]
+	 * buf[5][5:4] = acc_y[1:0]
+	 * buf[5][3:2] = acc_z[1:0]
+	 *
+	 * Buttons:
+	 * buf[5][1] = button_c_up
+	 * buf[5][0] = button_z_up
+	 */
+	status->joy_x = buf[0];
+	status->joy_y = buf[1];
 
-	/* TODO: parse buffer */
-	pr_alert("%x,%x,%x,%x,%x,%x\n",
-		buf[0], buf[1], buf[2], buf[3], buf[4], buf[5]);
+	status->acc_x = (buf[2] << ACCEL_ALIGN);
+	status->acc_y = (buf[3] << ACCEL_ALIGN);
+	status->acc_z = (buf[4] << ACCEL_ALIGN);
+	status->acc_x |= (buf[5] >> ACCELX_SHIFT);
+	status->acc_y |= (buf[5] >> ACCELY_SHIFT);
+	status->acc_z |= (buf[5] >> ACCELZ_SHIFT);
+
+
+	status->c_button_down = !(buf[5] & NUNCHUCK_BUTC_UP);
+	status->z_button_down = !(buf[5] & NUNCHUCK_BUTZ_UP);
+
+	pr_alert("joy-x=%03d, joy-y=%03d, acc-x=%04d, acc-y=%04d, acc-z=%04d, but-c_down=%d, but-z_down=%d\n",
+		status->joy_x,
+		status->joy_y,
+		status->acc_x,
+		status->acc_y,
+		status->acc_z,
+		status->c_button_down,
+		status->z_button_down);
 
 	return 0;
 
@@ -57,6 +98,7 @@ static int nunchuk_probe(struct i2c_client *cl, const struct i2c_device_id *id)
 {
 	int err, count;
 	char buf[2];
+	nunchuk_status_t nunchuk_status;
 
 	dev_info(&cl->dev, "%s called for client addr=%d, name=%s\n",
 		__func__, cl->addr, cl->name);
@@ -90,7 +132,7 @@ static int nunchuk_probe(struct i2c_client *cl, const struct i2c_device_id *id)
 		goto write_err;
 
 	/* read status */
-	err = get_status(cl);
+	err = get_status(cl, &nunchuk_status);
 	if (err)
 		goto status_err;
 
