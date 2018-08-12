@@ -2,6 +2,7 @@
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/i2c.h>
+#include <linux/delay.h>
 
 
 /*******************************************************************************
@@ -10,8 +11,47 @@
 
 static int nunchuk_probe(struct i2c_client *cl, const struct i2c_device_id *id)
 {
-	dev_info(&cl->dev, "%s called\n", __func__);
+	int err, count;
+	char buf[2];
+
+	dev_info(&cl->dev, "%s called for client addr=%d, name=%s\n",
+		__func__, cl->addr, cl->name);
+
+	/**
+	 * i2c Communication:
+	 *
+	 * READ:  <i2c_address> <register>
+	 * WRITE: <i2c_address> <register> <value>
+	 * (where i2c_address is send implicitly by the API)
+	 *
+	 *
+	 * Initialization:
+	 * - write 0x55 to register 0xf0
+	 * - wait for 1ms
+	 * - write 0x00 to register 0xfb
+	 */
+	buf[0] = 0xf0;
+	buf[1] = 0x55;
+	count = 2;
+	err = i2c_master_send(cl, buf, count);
+	if (err != count)
+		goto trans_err;
+
+	msleep(1);
+
+	buf[0] = 0xfb;
+	buf[1] = 0x00;
+	err = i2c_master_send(cl, buf, count);
+	if (err != count)
+		goto trans_err;
+
+
 	return 0;
+
+/* error handling */
+trans_err:
+	dev_err(&cl->dev, "%s: Transmission Error (err=%d)\n", __func__, err);
+	return err;
 }
 
 static int nunchuk_remove(struct i2c_client *cl)
