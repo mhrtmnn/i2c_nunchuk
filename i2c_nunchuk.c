@@ -65,9 +65,9 @@ static int get_status(struct i2c_client *cl, nunchuk_status_t *status)
 	status->acc_x = (buf[2] << ACCEL_ALIGN);
 	status->acc_y = (buf[3] << ACCEL_ALIGN);
 	status->acc_z = (buf[4] << ACCEL_ALIGN);
-	status->acc_x |= (buf[5] >> ACCELX_SHIFT);
-	status->acc_y |= (buf[5] >> ACCELY_SHIFT);
-	status->acc_z |= (buf[5] >> ACCELZ_SHIFT);
+	status->acc_x |= ((buf[5] >> ACCELX_SHIFT) & 0x03U);
+	status->acc_y |= ((buf[5] >> ACCELY_SHIFT) & 0x03U);
+	status->acc_z |= ((buf[5] >> ACCELZ_SHIFT) & 0x03U);
 
 
 	status->c_button_down = !(buf[5] & NUNCHUCK_BUTC_UP);
