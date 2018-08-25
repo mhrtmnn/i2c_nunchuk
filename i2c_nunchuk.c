@@ -6,6 +6,23 @@
 
 #include "i2c_nunchuk.h"
 
+/* fwd declaration */
+static int get_status(struct i2c_client *cl, nunchuk_status_t *status);
+
+/* global data structures */
+struct delayed_work g_dwork;
+struct i2c_client *g_cl;
+nunchuk_status_t g_status;
+
+static void worker_func(struct work_struct *work)
+{
+	struct delayed_work *dwork = to_delayed_work(work);
+
+	get_status(g_cl, &g_status);
+
+	/* requeue worker */
+	queue_delayed_work(system_power_efficient_wq, dwork, 0.1*HZ);
+}
 
 /*******************************************************************************
 * i2c DRIVER
@@ -136,6 +153,10 @@ static int nunchuk_probe(struct i2c_client *cl, const struct i2c_device_id *id)
 	if (err)
 		goto status_err;
 
+	g_cl = cl;
+	INIT_DELAYED_WORK(&g_dwork, worker_func);
+	queue_delayed_work(system_power_efficient_wq, &g_dwork, 0);
+
 	return 0;
 
 /* error handling */
@@ -151,6 +172,7 @@ status_err:
 static int nunchuk_remove(struct i2c_client *cl)
 {
 	dev_info(&cl->dev, "%s called\n", __func__);
+	cancel_delayed_work_sync(&g_dwork);
 	return 0;
 }
 
