@@ -8,7 +8,16 @@
 
 
 /*******************************************************************************
-* i2c DRIVER
+* MODULE PARAMETERS
+*******************************************************************************/
+
+static int dbg;
+module_param(dbg, int, S_IRUGO);
+MODULE_PARM_DESC(dbg, "Enable debug mode");
+
+
+/*******************************************************************************
+* HELPER FUNCTIONS
 *******************************************************************************/
 
 static int get_status(struct i2c_client *cl, nunchuk_status_t *status)
@@ -73,14 +82,15 @@ static int get_status(struct i2c_client *cl, nunchuk_status_t *status)
 	status->c_button_down = !(buf[5] & NUNCHUCK_BUTC_UP);
 	status->z_button_down = !(buf[5] & NUNCHUCK_BUTZ_UP);
 
-	pr_alert("joy-x=%03d, joy-y=%03d, acc-x=%04d, acc-y=%04d, acc-z=%04d, but-c_down=%d, but-z_down=%d\n",
-		status->joy_x,
-		status->joy_y,
-		status->acc_x,
-		status->acc_y,
-		status->acc_z,
-		status->c_button_down,
-		status->z_button_down);
+	if (dbg)
+		pr_alert("joy-x=%03d, joy-y=%03d, acc-x=%04d, acc-y=%04d, acc-z=%04d, but-c_down=%d, but-z_down=%d\n",
+			status->joy_x,
+			status->joy_y,
+			status->acc_x,
+			status->acc_y,
+			status->acc_z,
+			status->c_button_down,
+			status->z_button_down);
 
 	return 0;
 
