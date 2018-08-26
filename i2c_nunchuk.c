@@ -3,8 +3,16 @@
 #include <linux/init.h>
 #include <linux/i2c.h>
 #include <linux/delay.h>
+#include <linux/input-polldev.h>
 
 #include "i2c_nunchuk.h"
+
+
+/*******************************************************************************
+* MACROS
+*******************************************************************************/
+
+#define NUNCHUK_POLL_INTERVAL 50
 
 
 /*******************************************************************************
@@ -104,11 +112,46 @@ read_err:
 	return err;
 }
 
+
+/*******************************************************************************
+* INPUT DRIVER
+*******************************************************************************/
+
+void nunchuk_poll(struct input_polled_dev *polled_input)
+{
+	int err;
+	nunchuk_status_t status = {};
+	struct i2c_client *cl = container_of(polled_input->input->dev.parent,
+					     struct i2c_client, dev);
+
+	err = get_status(cl, &status);
+	if (err)
+		goto status_err;
+
+	/* report new input events as required */
+	input_event(polled_input->input, EV_KEY, BTN_Z, status.z_button_down);
+	input_event(polled_input->input, EV_KEY, BTN_C, status.c_button_down);
+	// TODO: joy and accel inputs
+
+	input_sync(polled_input->input);
+
+	return;
+
+status_err:
+	dev_err(&cl->dev, "%s: could not get status from nunchuk\n", __func__);
+}
+
+
+/*******************************************************************************
+* i2c DRIVER
+*******************************************************************************/
+
 static int nunchuk_probe(struct i2c_client *cl, const struct i2c_device_id *id)
 {
 	int err, count;
 	char buf[2];
-	nunchuk_status_t nunchuk_status;
+	struct input_polled_dev *polled_input;
+	struct input_dev *input;
 
 	dev_info(&cl->dev, "%s called for client addr=%d, name=%s\n",
 		__func__, cl->addr, cl->name);
@@ -126,6 +169,8 @@ static int nunchuk_probe(struct i2c_client *cl, const struct i2c_device_id *id)
 	 * - wait for 1ms
 	 * - write 0x00 to register 0xfb
 	 */
+
+	/*********************** nunchuk initialization ***********************/
 	buf[0] = 0xf0;
 	buf[1] = 0x55;
 	count = 2;
@@ -141,10 +186,36 @@ static int nunchuk_probe(struct i2c_client *cl, const struct i2c_device_id *id)
 	if (err != count)
 		goto write_err;
 
-	/* read status */
-	err = get_status(cl, &nunchuk_status);
+	/************************** input dev setup ***************************/
+	polled_input = devm_input_allocate_polled_device(&cl->dev);
+	if (!polled_input)
+		goto alloc_err;
+
+	polled_input->poll = nunchuk_poll;
+	polled_input->poll_interval = NUNCHUK_POLL_INTERVAL;
+
+	/* setup input device */
+	input = polled_input->input;
+	input->name = "Wii Nunchuk";
+	input->id.bustype = BUS_I2C;
+
+	/**
+	 * evbit: bitmap of types of events supported by the device, where
+	 * EV_KEY is used to describe state changes of key-like devices.
+	 *
+	 * see: Documentation/input/event-codes.txt
+	 */
+	set_bit(EV_KEY, input->evbit);
+
+	/**
+	 * keybit: bitmap of keys/buttons this device has
+	 */
+	set_bit(BTN_C, input->keybit);
+	set_bit(BTN_Z, input->keybit);
+
+	err = input_register_polled_device(polled_input);
 	if (err)
-		goto status_err;
+		goto polled_reg_err;
 
 	return 0;
 
@@ -153,8 +224,12 @@ write_err:
 	dev_err(&cl->dev, "%s: i2c write error (err=%d)\n", __func__, err);
 	return err;
 
-status_err:
-	dev_err(&cl->dev, "%s: could not get status from nunchuk\n", __func__);
+alloc_err:
+	dev_err(&cl->dev, "%s: could not allocate polled device\n", __func__);
+	return -ENOMEM;
+
+polled_reg_err:
+	dev_err(&cl->dev, "%s: could not register polled device\n", __func__);
 	return err;
 }
 
@@ -164,10 +239,6 @@ static int nunchuk_remove(struct i2c_client *cl)
 	return 0;
 }
 
-
-/*******************************************************************************
-* i2c DRIVER
-*******************************************************************************/
 
 static const struct of_device_id nunchuk_of_match[] = {
 		{ .compatible = "nintendo,nunchuk" },
