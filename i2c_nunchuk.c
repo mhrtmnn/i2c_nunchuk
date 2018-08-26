@@ -172,7 +172,10 @@ void nunchuk_poll(struct input_polled_dev *polled_input)
 	/* report new input events as required */
 	input_event(polled_input->input, EV_KEY, BTN_Z, status.z_button_down);
 	input_event(polled_input->input, EV_KEY, BTN_C, status.c_button_down);
-	// TODO: joy and accel inputs
+
+	input_event(polled_input->input, EV_ABS, ABS_X, status.joy_x);
+	input_event(polled_input->input, EV_ABS, ABS_Y, status.joy_y);
+	// TODO: accel inputs
 
 	input_sync(polled_input->input);
 
@@ -218,17 +221,31 @@ static int nunchuk_probe(struct i2c_client *cl, const struct i2c_device_id *id)
 
 	/**
 	 * evbit: bitmap of types of events supported by the device, where
-	 * EV_KEY is used to describe state changes of key-like devices.
+	 * - EV_KEY is used to describe state changes of key-like devices
+	 * - EV_ABS events describe absolute changes in a property
 	 *
 	 * see: Documentation/input/event-codes.txt
 	 */
 	set_bit(EV_KEY, input->evbit);
+	set_bit(EV_ABS, input->evbit);
 
 	/**
 	 * keybit: bitmap of keys/buttons this device has
 	 */
 	set_bit(BTN_C, input->keybit);
 	set_bit(BTN_Z, input->keybit);
+
+	/**
+	 * absbit: bitmap of absolute axes for the device
+	 */
+	set_bit(ABS_X, input->absbit);
+	set_bit(ABS_Y, input->absbit);
+
+	/* setup joystick params */
+	input_set_abs_params(input, ABS_X, 0x00, 0xff, 0, 0);
+	if (!input->absinfo)
+		goto alloc_err;
+	input_set_abs_params(input, ABS_Y, 0x00, 0xff, 0, 0);
 
 	/* register fully initialized polled input device */
 	err = input_register_polled_device(polled_input);
@@ -243,7 +260,7 @@ init_err:
 	return err;
 
 alloc_err:
-	dev_err(&cl->dev, "%s: could not allocate polled device\n", __func__);
+	dev_err(&cl->dev, "%s: could not allocate memory\n", __func__);
 	return -ENOMEM;
 
 polled_reg_err:
