@@ -170,11 +170,11 @@ void nunchuk_poll(struct input_polled_dev *polled_input)
 		goto status_err;
 
 	/* report new input events as required */
-	input_event(polled_input->input, EV_KEY, BTN_Z, status.z_button_down);
-	input_event(polled_input->input, EV_KEY, BTN_C, status.c_button_down);
+	input_report_key(polled_input->input, BTN_Z, status.z_button_down);
+	input_report_key(polled_input->input, BTN_C, status.c_button_down);
 
-	input_event(polled_input->input, EV_ABS, ABS_X, status.joy_x);
-	input_event(polled_input->input, EV_ABS, ABS_Y, status.joy_y);
+	input_report_abs(polled_input->input, ABS_X, status.joy_x);
+	input_report_abs(polled_input->input, ABS_Y, status.joy_y);
 	// TODO: accel inputs
 
 	input_sync(polled_input->input);
