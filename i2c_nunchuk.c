@@ -146,6 +146,8 @@ int initialize_nunchuk(struct i2c_client *cl)
 	if (err != count)
 		goto write_err;
 
+	return 0;
+
 write_err:
 	dev_err(&cl->dev, "%s: i2c write error (err=%d)\n", __func__, err);
 	return err;
