@@ -112,6 +112,45 @@ read_err:
 	return err;
 }
 
+int initialize_nunchuk(struct i2c_client *cl)
+{
+	int err, count;
+	char buf[2];
+
+	/**
+	 * i2c Communication:
+	 *
+	 * READ:  <i2c_address> <register>
+	 * WRITE: <i2c_address> <register> <value>
+	 * (where i2c_address is send implicitly by the API)
+	 *
+	 *
+	 * Initialization:
+	 * - write 0x55 to register 0xf0
+	 * - wait for 1ms
+	 * - write 0x00 to register 0xfb
+	 */
+
+	buf[0] = 0xf0;
+	buf[1] = 0x55;
+	count = 2;
+	err = i2c_master_send(cl, buf, count);
+	if (err != count)
+		goto write_err;
+
+	msleep(1);
+
+	buf[0] = 0xfb;
+	buf[1] = 0x00;
+	err = i2c_master_send(cl, buf, count);
+	if (err != count)
+		goto write_err;
+
+write_err:
+	dev_err(&cl->dev, "%s: i2c write error (err=%d)\n", __func__, err);
+	return err;
+}
+
 
 /*******************************************************************************
 * INPUT DRIVER
@@ -148,49 +187,25 @@ status_err:
 
 static int nunchuk_probe(struct i2c_client *cl, const struct i2c_device_id *id)
 {
-	int err, count;
-	char buf[2];
+	int err;
 	struct input_polled_dev *polled_input;
 	struct input_dev *input;
 
 	dev_info(&cl->dev, "%s called for client addr=%d, name=%s\n",
 		__func__, cl->addr, cl->name);
 
-	/**
-	 * i2c Communication:
-	 *
-	 * READ:  <i2c_address> <register>
-	 * WRITE: <i2c_address> <register> <value>
-	 * (where i2c_address is send implicitly by the API)
-	 *
-	 *
-	 * Initialization:
-	 * - write 0x55 to register 0xf0
-	 * - wait for 1ms
-	 * - write 0x00 to register 0xfb
-	 */
 
 	/*********************** nunchuk initialization ***********************/
-	buf[0] = 0xf0;
-	buf[1] = 0x55;
-	count = 2;
-	err = i2c_master_send(cl, buf, count);
-	if (err != count)
-		goto write_err;
-
-	msleep(1);
-
-	buf[0] = 0xfb;
-	buf[1] = 0x00;
-	err = i2c_master_send(cl, buf, count);
-	if (err != count)
-		goto write_err;
+	err = initialize_nunchuk(cl);
+	if (err)
+		goto init_err;
 
 	/************************** input dev setup ***************************/
 	polled_input = devm_input_allocate_polled_device(&cl->dev);
 	if (!polled_input)
 		goto alloc_err;
 
+	/* setup polled input device */
 	polled_input->poll = nunchuk_poll;
 	polled_input->poll_interval = NUNCHUK_POLL_INTERVAL;
 
@@ -213,6 +228,7 @@ static int nunchuk_probe(struct i2c_client *cl, const struct i2c_device_id *id)
 	set_bit(BTN_C, input->keybit);
 	set_bit(BTN_Z, input->keybit);
 
+	/* register fully initialized polled input device */
 	err = input_register_polled_device(polled_input);
 	if (err)
 		goto polled_reg_err;
@@ -220,8 +236,8 @@ static int nunchuk_probe(struct i2c_client *cl, const struct i2c_device_id *id)
 	return 0;
 
 /* error handling */
-write_err:
-	dev_err(&cl->dev, "%s: i2c write error (err=%d)\n", __func__, err);
+init_err:
+	dev_err(&cl->dev, "%s: could not initialize nunchuk\n", __func__);
 	return err;
 
 alloc_err:
@@ -239,7 +255,7 @@ static int nunchuk_remove(struct i2c_client *cl)
 	return 0;
 }
 
-
+/****************************** driver structures *****************************/
 static const struct of_device_id nunchuk_of_match[] = {
 		{ .compatible = "nintendo,nunchuk" },
 		{}
