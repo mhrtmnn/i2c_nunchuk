@@ -36,4 +36,9 @@ struct nunchuk_iio_priv {
 	struct i2c_client *client;
 };
 
+struct nunchuk_i2c_priv {
+	struct iio_dev *iiodev;
+	struct mutex mutex;
+};
+
 #endif /* _i2c_nunchuk */

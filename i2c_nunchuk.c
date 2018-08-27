@@ -33,6 +33,9 @@ static int get_status(struct i2c_client *cl, nunchuk_status_t *status)
 {
 	int err, count;
 	char buf[6];
+	struct nunchuk_i2c_priv *i2c_data = i2c_get_clientdata(cl);
+
+	mutex_lock(&i2c_data->mutex);
 
 	/**
 	 * Read Status:
@@ -55,6 +58,8 @@ static int get_status(struct i2c_client *cl, nunchuk_status_t *status)
 	err = i2c_master_recv(cl, buf, count);
 	if (err != count)
 		goto read_err;
+
+	mutex_unlock(&i2c_data->mutex);
 
 	/**
 	 * Parse the Buffer
@@ -105,10 +110,12 @@ static int get_status(struct i2c_client *cl, nunchuk_status_t *status)
 
 /* error handling */
 write_err:
+	mutex_unlock(&i2c_data->mutex);
 	dev_err(&cl->dev, "%s: i2c write error (err=%d)\n", __func__, err);
 	return -EIO;
 
 read_err:
+	mutex_unlock(&i2c_data->mutex);
 	dev_err(&cl->dev, "%s: i2c read error (err=%d)\n", __func__, err);
 	return -EIO;
 }
@@ -117,6 +124,9 @@ int initialize_nunchuk(struct i2c_client *cl)
 {
 	int err, count;
 	char buf[2];
+	struct nunchuk_i2c_priv *i2c_data = i2c_get_clientdata(cl);
+
+	mutex_lock(&i2c_data->mutex);
 
 	/**
 	 * i2c Communication:
@@ -147,9 +157,12 @@ int initialize_nunchuk(struct i2c_client *cl)
 	if (err != count)
 		goto write_err;
 
+	mutex_unlock(&i2c_data->mutex);
+
 	return 0;
 
 write_err:
+	mutex_unlock(&i2c_data->mutex);
 	dev_err(&cl->dev, "%s: i2c write error (err=%d)\n", __func__, err);
 	return -EIO;
 }
@@ -172,13 +185,7 @@ static int nunchuk_iio_read_raw(struct iio_dev *indio_dev,
 	if (mask != IIO_CHAN_INFO_RAW)
 		return -EINVAL;
 
-	/**
-	 * TODO: multiple calls to get status ...
-	 * There is a lock in the i2c API, EAGAIN is returned if bus is busy,
-	 * but proper synchronization would be nice. Maybe add a proxy, that
-	 * checks how recent the last read is and retuns buffered data without
-	 * doing a i2c read if it is recent enough
-	 */
+	/* read data from nunchuk */
 	ret = get_status(cl, &status);
 	if (ret)
 		return ret;
@@ -263,11 +270,21 @@ static int nunchuk_probe(struct i2c_client *cl, const struct i2c_device_id *id)
 	struct input_dev *input;
 	struct input_polled_dev *polled_input;
 	struct iio_dev *indio_dev;
-	struct nunchuk_iio_priv *iio_priv_data;
+	struct nunchuk_iio_priv *iio_data;
+	struct nunchuk_i2c_priv *i2c_data;
 
 	dev_info(&cl->dev, "%s called for client addr=%d, name=%s\n",
 		__func__, cl->addr, cl->name);
 
+	/************************ i2c private drv data ************************/
+	i2c_data = devm_kzalloc(&cl->dev, sizeof(*i2c_data), GFP_KERNEL);
+	if (!i2c_data)
+		goto alloc_err;
+
+	/* init mutex used to synchronize i2c reads */
+	mutex_init(&i2c_data->mutex);
+
+	i2c_set_clientdata(cl, i2c_data);
 
 	/*********************** nunchuk initialization ***********************/
 	err = initialize_nunchuk(cl);
@@ -323,16 +340,17 @@ static int nunchuk_probe(struct i2c_client *cl, const struct i2c_device_id *id)
 
 
 	/*************************** iio dev setup ****************************/
-	indio_dev = devm_iio_device_alloc(&cl->dev, sizeof(*iio_priv_data));
+	indio_dev = devm_iio_device_alloc(&cl->dev, sizeof(*iio_data));
 	if (!indio_dev)
 		goto alloc_err;
 
 	/* iio -> i2c connection (for .read_raw()) */
-	iio_priv_data = iio_priv(indio_dev);
-	iio_priv_data->client = cl;
+	iio_data = iio_priv(indio_dev);
+	iio_data->client = cl;
 
 	/* i2c -> iio connection (for unregistering during i2c-remove) */
-	i2c_set_clientdata(cl, indio_dev);
+	i2c_data = i2c_get_clientdata(cl);
+	i2c_data->iiodev = indio_dev;
 
 	/**
 	 * INFO:
@@ -373,7 +391,8 @@ iio_reg_err:
 
 static int nunchuk_remove(struct i2c_client *cl)
 {
-	struct iio_dev *indio_dev = i2c_get_clientdata(cl);
+	struct nunchuk_i2c_priv *i2c_data = i2c_get_clientdata(cl);
+	struct iio_dev *indio_dev = i2c_data->iiodev;
 
 	dev_info(&cl->dev, "%s called\n", __func__);
 
