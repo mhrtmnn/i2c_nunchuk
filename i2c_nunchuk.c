@@ -4,6 +4,7 @@
 #include <linux/i2c.h>
 #include <linux/delay.h>
 #include <linux/input-polldev.h>
+#include <linux/iio/iio.h>
 
 #include "i2c_nunchuk.h"
 
@@ -155,6 +156,72 @@ write_err:
 
 
 /*******************************************************************************
+* INDUSTRIAL IO DRIVER
+*******************************************************************************/
+
+static int nunchuk_iio_read_raw(struct iio_dev *indio_dev,
+				struct iio_chan_spec const *chan,
+				int *val, int *val2, long mask)
+{
+	int ret;
+	nunchuk_status_t status = {};
+	struct nunchuk_iio_priv *data = iio_priv(indio_dev);
+	struct i2c_client *cl = data->client;
+
+	/* only raw mode is supported */
+	if (mask != IIO_CHAN_INFO_RAW)
+		return -EINVAL;
+
+	/**
+	 * TODO: multiple calls to get status ...
+	 * There is a lock in the i2c API, EAGAIN is returned if bus is busy,
+	 * but proper synchronization would be nice. Maybe add a proxy, that
+	 * checks how recent the last read is and retuns buffered data without
+	 * doing a i2c read if it is recent enough
+	 */
+	ret = get_status(cl, &status);
+	if (ret)
+		return ret;
+
+	/* data needs to be written to 'val', 'val2' is ignored */
+
+	switch (chan->channel2) {
+	case IIO_MOD_X:
+		*val = status.acc_x;
+		break;
+	case IIO_MOD_Y:
+		*val = status.acc_y;
+		break;
+	case IIO_MOD_Z:
+		*val = status.acc_z;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	return IIO_VAL_INT;
+}
+
+/****************************** driver structures *****************************/
+#define NUNCHUK_IIO_CHAN(axis) {			\
+	.type = IIO_ACCEL,				\
+	.modified = 1,					\
+	.channel2 = IIO_MOD_##axis,			\
+	.info_mask_separate = BIT(IIO_CHAN_INFO_RAW),	\
+}
+
+static const struct iio_chan_spec nunchuk_iio_channles[] = {
+	NUNCHUK_IIO_CHAN(X),
+	NUNCHUK_IIO_CHAN(Y),
+	NUNCHUK_IIO_CHAN(Z),
+};
+
+static const struct iio_info nunchuk_iio_info = {
+	.read_raw	= nunchuk_iio_read_raw,
+};
+
+
+/*******************************************************************************
 * INPUT DRIVER
 *******************************************************************************/
 
@@ -193,8 +260,10 @@ status_err:
 static int nunchuk_probe(struct i2c_client *cl, const struct i2c_device_id *id)
 {
 	int err;
-	struct input_polled_dev *polled_input;
 	struct input_dev *input;
+	struct input_polled_dev *polled_input;
+	struct iio_dev *indio_dev;
+	struct nunchuk_iio_priv *iio_priv_data;
 
 	dev_info(&cl->dev, "%s called for client addr=%d, name=%s\n",
 		__func__, cl->addr, cl->name);
@@ -252,6 +321,36 @@ static int nunchuk_probe(struct i2c_client *cl, const struct i2c_device_id *id)
 	if (err)
 		goto polled_reg_err;
 
+
+	/*************************** iio dev setup ****************************/
+	indio_dev = devm_iio_device_alloc(&cl->dev, sizeof(*iio_priv_data));
+	if (!indio_dev)
+		goto alloc_err;
+
+	/* iio -> i2c connection (for .read_raw()) */
+	iio_priv_data = iio_priv(indio_dev);
+	iio_priv_data->client = cl;
+
+	/* i2c -> iio connection (for unregistering during i2c-remove) */
+	i2c_set_clientdata(cl, indio_dev);
+
+	/**
+	 * INFO:
+	 * polled_dev -> i2c can be realized with 'container_of'
+	 * i2c -> polled_dev not required, see devm_input_allocate_polled_device
+	 */
+
+	indio_dev->dev.parent = &cl->dev;
+	indio_dev->info = &nunchuk_iio_info;
+	indio_dev->name = "Nunchuk Accel";
+	indio_dev->modes = INDIO_DIRECT_MODE;
+	indio_dev->channels = nunchuk_iio_channles;
+	indio_dev->num_channels = ARRAY_SIZE(nunchuk_iio_channles);
+
+	err = iio_device_register(indio_dev);
+	if (err)
+		goto iio_reg_err;
+
 	return 0;
 
 /* error handling */
@@ -266,11 +365,21 @@ alloc_err:
 polled_reg_err:
 	dev_err(&cl->dev, "%s: could not register polled device\n", __func__);
 	return err;
+
+iio_reg_err:
+	dev_err(&cl->dev, "%s: could not register iio device\n", __func__);
+	return err;
 }
 
 static int nunchuk_remove(struct i2c_client *cl)
 {
+	struct iio_dev *indio_dev = i2c_get_clientdata(cl);
+
 	dev_info(&cl->dev, "%s called\n", __func__);
+
+	if (indio_dev)
+		iio_device_unregister(indio_dev);
+
 	return 0;
 }
 

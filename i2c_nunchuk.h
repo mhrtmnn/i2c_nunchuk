@@ -32,5 +32,8 @@ typedef struct
 	bool z_button_down;
 } nunchuk_status_t;
 
+struct nunchuk_iio_priv {
+	struct i2c_client *client;
+};
 
 #endif /* _i2c_nunchuk */
