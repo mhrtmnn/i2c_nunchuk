@@ -105,11 +105,11 @@ static int get_status(struct i2c_client *cl, nunchuk_status_t *status)
 /* error handling */
 write_err:
 	dev_err(&cl->dev, "%s: i2c write error (err=%d)\n", __func__, err);
-	return err;
+	return -EIO;
 
 read_err:
 	dev_err(&cl->dev, "%s: i2c read error (err=%d)\n", __func__, err);
-	return err;
+	return -EIO;
 }
 
 int initialize_nunchuk(struct i2c_client *cl)
@@ -150,7 +150,7 @@ int initialize_nunchuk(struct i2c_client *cl)
 
 write_err:
 	dev_err(&cl->dev, "%s: i2c write error (err=%d)\n", __func__, err);
-	return err;
+	return -EIO;
 }
 
 
