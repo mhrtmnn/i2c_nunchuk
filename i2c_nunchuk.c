@@ -331,6 +331,11 @@ static int nunchuk_probe(struct i2c_client *cl, const struct i2c_device_id *id)
 	input_set_abs_params(input, ABS_X, 0x00, 0xff, 0, 0);
 	if (!input->absinfo)
 		goto alloc_err;
+	/**
+	 * The second call to input_register_polled_device() skips allocation of
+	 * the absinfo structure if some previous allocation succeeded.
+	 * This means there is no need to check for a NULL ptr a second time
+	 */
 	input_set_abs_params(input, ABS_Y, 0x00, 0xff, 0, 0);
 
 	/* register fully initialized polled input device */
