@@ -5,7 +5,7 @@
 This kernel driver reads the status of a Wii Nunchuk and exports this data to the relevant kernel subsystems.
 Input events are exported via [evdev] and accelerometer data via [Industrial I/O].
 
-The driver is part of the _BeagleBone Black_ [buildroot project].
+The driver is part of my experimental _BeagleBone Black_ [buildroot project].
 
 It was initially based on bootlin's [Linux kernel and driver development training].
 
